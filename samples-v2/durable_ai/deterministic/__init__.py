@@ -5,15 +5,7 @@ import azure.functions as func
 from agents import Agent, Runner, OpenAIChatCompletionsModel, UserError, set_default_openai_client
 from openai import AsyncAzureOpenAI, BaseModel
 
-import durable_ai
-
-app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
-ai_app = durable_ai.DurableAIFunctionApp(app)
-
-ai_app.enable_agent_http_trigger()
-
-@ai_app.agent(name="myagent")
-async def run_myagent(input):
+async def run(input):
     openai_client = AsyncAzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         api_version=os.getenv("AZURE_OPENAI_API_VERSION"),

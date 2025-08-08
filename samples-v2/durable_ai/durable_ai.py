@@ -1,5 +1,6 @@
 import copy
 import dataclasses
+import functools
 import json
 import asyncio
 from typing import Any, TypedDict
@@ -235,6 +236,7 @@ class DurableAIFunctionApp:
     def agent(self, name: str, input_name: str = "input"):
         def agent_orchestration_trigger_wrapper(trigger):
             @self.app.orchestration_trigger(orchestration=f"{name}-orchestration", context_name="context")
+            @functools.wraps(trigger)
             def agent_orchestration_trigger(context):
                 input = context.get_input()
 
