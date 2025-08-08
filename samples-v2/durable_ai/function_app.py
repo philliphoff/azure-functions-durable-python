@@ -1,7 +1,7 @@
 import os
 import azure.functions as func
 import durable_ai
-from agents import Agent, Runner, OpenAIChatCompletionsModel, set_default_openai_client
+from agents import OpenAIChatCompletionsModel, set_default_openai_client
 from openai import AsyncAzureOpenAI
 
 # Import the agent runners
@@ -31,4 +31,4 @@ async def run_hello_world(input):
 
 @ai_app.agent(name="deterministic")
 async def run_deterministic(input):
-    return await deterministic.run(input)
+    return await deterministic.run(input, model)

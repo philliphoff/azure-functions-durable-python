@@ -1,23 +1,7 @@
+from agents import Agent, Runner, UserError 
 from dataclasses import dataclass
-import os
-import azure.functions as func
 
-from agents import Agent, Runner, OpenAIChatCompletionsModel, UserError, set_default_openai_client
-from openai import AsyncAzureOpenAI, BaseModel
-
-async def run(input):
-    openai_client = AsyncAzureOpenAI(
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT")
-    )
-
-    model=OpenAIChatCompletionsModel(model="gpt-4.1", openai_client=openai_client)
-
-    # Set the default OpenAI client for the Agents SDK
-    set_default_openai_client(openai_client)
-
+async def run(input, model):
     """
     This example demonstrates a deterministic flow, where each step is performed by an agent.
     1. The first agent generates a story outline
