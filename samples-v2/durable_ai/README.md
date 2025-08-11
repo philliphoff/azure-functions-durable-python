@@ -26,5 +26,7 @@
    ```bash
    curl -G "http://localhost:7071/api/agents/deterministic" --data-urlencode "input=Write story about the world's first cat-astronaut."
    curl -G "http://localhost:7071/api/agents/hello_world" --data-urlencode "input=Write a haiku about Portland, Oregon."
+   curl -G "http://localhost:7071/api/agents/llm_as_a_judge" --data-urlencode "input=I'd like to hear a story about a baby snake and a baby mouse that become friends."
+   curl -G "http://localhost:7071/api/agents/tools" --data-urlencode "input=What's the weather in Seattle, WA?"
    ```
 1. Wait for the orchestration to complete, then either view the results using the returned status URL or in the DTS dashboard
