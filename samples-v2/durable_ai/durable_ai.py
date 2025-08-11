@@ -28,6 +28,20 @@ class DurableAIOrchestrationContext:
         self.activity_name = activity_name
         self.tasks = {}
 
+    async def call_real_activity(self, activity_name: str, input: Any | None = None):
+        input_json = f"{activity_name}|{json.dumps(input) if input is not None else ''}"
+
+        if input_json in self.tasks:
+            task = self.tasks[input_json]
+        else:
+            task = self.context.call_activity(activity_name, input)
+            self.tasks[input_json] = task
+
+        if task.is_completed:
+            return task.result
+
+        raise YieldTaskError(task)
+
     async def call_activity(self, input: Any | None = None):
         input_json = json.dumps(input) if input is not None else ""
 
@@ -260,7 +274,7 @@ class DurableAIFunctionApp:
             response = client.create_check_status_response(req, instance_id)
             return response
 
-    def agent(self, name: str, input_name: str = "input"):
+    def agent(self, name: str, input_name: str = "input", context_name: str = "context"):
         def agent_orchestration_trigger_wrapper(trigger):
             @self.app.orchestration_trigger(orchestration=f"{name}-orchestration", context_name="context")
             @functools.wraps(trigger)
@@ -273,7 +287,12 @@ class DurableAIFunctionApp:
                     try:
                         set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context))
 
-                        return await trigger(**{input_name: input})
+                        kwargs = {
+                            context_name: durableAIContext,
+                            input_name: input
+                        }
+
+                        return await trigger(**kwargs)
                     except YieldTaskError as e:
                         return e.task
 
