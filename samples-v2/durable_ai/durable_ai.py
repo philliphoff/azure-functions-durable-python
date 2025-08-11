@@ -12,9 +12,9 @@ import azure.functions as func
 from agents.run import AgentRunner, set_default_agent_runner, Model, RunConfig
 from azure.durable_functions.models.DurableOrchestrationContext import DurableOrchestrationContext
 
-class YieldTaskError(Exception):
+class YieldTaskError(BaseException):
     def __init__(self, task: TaskBase):
-        super().__init__("Stop running the orchestration.")
+        super().__init__("Halt the orchestration to return an orchestration task.")
         self.task = task
 
 class DurableAIModelContext:
@@ -46,21 +46,6 @@ class DurableAIActivityOutputSchemaInput(BaseModel):
     is_wrapped: bool
     output_schema: dict[str, Any] | None
     strict_json_schema: bool
-
-    # def is_plain_text(self) -> bool:
-    #     return self.output_type is None or self.output_type == "str"
-
-    # def name(self) -> str:
-    #     return self.output_type if self.output_type is not None else "plain_text"
-
-    # def json_schema(self) -> dict[str, Any]:
-    #     return self.output_schema
-
-    # def is_strict_json_schema(self) -> bool:
-    #     return self._strict_json_schema
-
-    # def validate_json(self, json_str: str) -> Any:
-    #     raise NotImplementedError("DurableAIActivityOutputSchema does not support validate_json")
 
 class DurableAIActivityOutputSchema(AgentOutputSchemaBase):
     def __init__(self, input: DurableAIActivityOutputSchemaInput):
