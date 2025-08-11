@@ -8,6 +8,7 @@ from openai import AsyncAzureOpenAI
 import deterministic
 import hello_world
 import llm_as_a_judge
+import tools
 
 openai_client = AsyncAzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -37,3 +38,7 @@ async def run_deterministic(input):
 @ai_app.agent(name="llm_as_a_judge")
 async def run_llm_as_a_judge(input):
     return await llm_as_a_judge.run(input, model)
+
+@ai_app.agent(name="tools")
+async def run_tools(input):
+    return await tools.run(input, model)

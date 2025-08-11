@@ -4,7 +4,7 @@ from agents.run import Model
 async def run(input: str, model: Model) -> str:
     agent = Agent(
         name="Assistant",
-        instructions="You are a helpful assistant",
+        instructions="You only respond in haikus.",
         model=model
     )
 
