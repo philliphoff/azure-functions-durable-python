@@ -4,5 +4,6 @@
 
 azure-functions
 azure-functions-durable
-openai
+# NOTE: Use 1.99.7 or later to avoid https://github.com/openai/openai-python/issues/2541
+openai>=1.99.7
 openai-agents

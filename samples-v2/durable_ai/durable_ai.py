@@ -3,14 +3,15 @@ import dataclasses
 import functools
 import json
 import asyncio
-from typing import Any, Dict, TypedDict
+from typing import Any, Awaitable, Dict, TypedDict, Union
 from openai import BaseModel
 from openai.types.responses.response_prompt_param import ResponsePromptParam
-from agents import AgentOutputSchema, AgentOutputSchemaBase, Handoff, ModelResponse, ModelSettings, ModelTracing, TResponseInputItem, Tool
+from agents import AgentOutputSchema, AgentOutputSchemaBase, FunctionTool, Handoff, ModelResponse, ModelSettings, ModelTracing, TResponseInputItem, Tool
 from azure.durable_functions.models.Task import TaskBase
 import azure.functions as func
 from agents.run import AgentRunner, set_default_agent_runner, Model, RunConfig
 from azure.durable_functions.models.DurableOrchestrationContext import DurableOrchestrationContext
+from agents.tool_context import ToolContext
 
 class YieldTaskError(BaseException):
     def __init__(self, task: TaskBase):
@@ -66,11 +67,23 @@ class DurableAIActivityOutputSchema(AgentOutputSchemaBase):
     def validate_json(self, json_str: str) -> Any:
         raise NotImplementedError("DurableAIActivityOutputSchema does not support validate_json")
 
+class DurableAIFunctionToolInput(BaseModel):
+    description: str
+    name: str
+    params_json_schema: dict[str, Any]
+    strict_json_schema: bool
+
+DurableAIToolInput = Union[
+    DurableAIFunctionToolInput
+]
+
 class DurableAIActivityInput(BaseModel):
     input: str | list[Dict[str, Any]]
     instance_id: str | None
     output_schema: DurableAIActivityOutputSchemaInput | None
     system_instructions: str | None
+    tools: list[DurableAIToolInput]
+
 
 class DurableAIModel(Model):
     def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model):
@@ -91,6 +104,17 @@ class DurableAIModel(Model):
         prompt: ResponsePromptParam | None):
         # TODO: Need to uniquely identify a model invocation
 
+        def get_tool_input(tool: Tool) -> DurableAIToolInput:
+            if isinstance(tool, FunctionTool):
+                return DurableAIFunctionToolInput(
+                    description=tool.description,
+                    name=tool.name,
+                    params_json_schema=tool.params_json_schema,
+                    strict_json_schema=tool.strict_json_schema
+                )
+            else:
+                raise TypeError(f"Unsupported tool type: {type(tool)}")
+
         input_output_schema = None
 
         if output_schema is not None:
@@ -107,7 +131,8 @@ class DurableAIModel(Model):
             input=input,
             instance_id=self.context.context.instance_id,
             output_schema=input_output_schema,
-            system_instructions=system_instructions
+            system_instructions=system_instructions,
+            tools=[get_tool_input(tool) for tool in tools]
         )
 
         response = await self.context.call_activity(input=activity_input.to_dict())
@@ -122,12 +147,13 @@ class DurableAIModel(Model):
             self,
             system_instructions: str | None,
             input: str | list[TResponseInputItem],
-            output_schema: AgentOutputSchemaBase):
+            output_schema: AgentOutputSchemaBase,
+            tools: list[Tool]):
         response = await self.model.get_response(
             system_instructions=system_instructions,
             input=input,
             model_settings=ModelSettings(),
-            tools=[],
+            tools=tools,
             output_schema=output_schema,
             handoffs=[],
             tracing=ModelTracing.ENABLED,
@@ -194,10 +220,26 @@ class DurableAIFunctionApp:
             if (activity_input.output_schema is not None):
                 output_schema = DurableAIActivityOutputSchema(activity_input.output_schema)
 
+            async def invoke_tool(tool_context: ToolContext, params: str) -> Awaitable[Any]:
+                return await "Test"
+
+            def to_tools(tool: DurableAIToolInput) -> Tool:
+                if isinstance(tool, DurableAIFunctionToolInput):
+                    return FunctionTool(
+                        description=tool.description,
+                        name=tool.name,
+                        on_invoke_tool=invoke_tool,
+                        params_json_schema=tool.params_json_schema,
+                        strict_json_schema=tool.strict_json_schema
+                    )
+                else:
+                    raise TypeError(f"Unsupported tool type: {type(tool)}")
+
             response = await model.get_model_response(
                 system_instructions=activity_input.system_instructions,
                 input=activity_input.input,
-                output_schema=output_schema
+                output_schema=output_schema,
+                tools=[to_tools(tool) for tool in activity_input.tools]
             )
 
             # Returns JSON encoded as bytes
