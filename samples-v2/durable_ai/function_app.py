@@ -42,7 +42,7 @@ async def run_hello_world(input):
 @ai_app.agent(name="deterministic")
 async def run_deterministic(input, context):
     story = await deterministic.run(input, model)
-    return await context.call_real_activity("publish_story", story)
+    return await context.call_activity("publish_story", story)
 
 @app.activity_trigger(input_name="input")
 async def publish_story(input: str):

@@ -23,32 +23,17 @@ class DurableAIModelContext:
         self.models = {}
 
 class DurableAIOrchestrationContext:
-    def __init__(self, context: DurableOrchestrationContext, activity_name: str):
+    def __init__(self, context: DurableOrchestrationContext):
         self.context = context
-        self.activity_name = activity_name
         self.tasks = {}
 
-    async def call_real_activity(self, activity_name: str, input: Any | None = None):
+    async def call_activity(self, activity_name: str, input: Any | None = None):
         input_json = f"{activity_name}|{json.dumps(input) if input is not None else ''}"
 
         if input_json in self.tasks:
             task = self.tasks[input_json]
         else:
             task = self.context.call_activity(activity_name, input)
-            self.tasks[input_json] = task
-
-        if task.is_completed:
-            return task.result
-
-        raise YieldTaskError(task)
-
-    async def call_activity(self, input: Any | None = None):
-        input_json = json.dumps(input) if input is not None else ""
-
-        if input_json in self.tasks:
-            task = self.tasks[input_json]
-        else:
-            task = self.context.call_activity(self.activity_name, input)
             self.tasks[input_json] = task
 
         if task.is_completed:
@@ -100,9 +85,10 @@ class DurableAIActivityInput(BaseModel):
 
 
 class DurableAIModel(Model):
-    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model):
+    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model, activity_name: str):
         self.model = model
         self.context = context
+        self.activity_name = activity_name
 
     async def get_response(
         self,
@@ -149,7 +135,10 @@ class DurableAIModel(Model):
             tools=[get_tool_input(tool) for tool in tools]
         )
 
-        response = await self.context.call_activity(input=activity_input.to_dict())
+        response = await self.context.call_activity(
+            activity_name=self.activity_name,
+            input=activity_input.to_dict()
+        )
 
         # NOTE: The response is a ModelResponse encoded as a JSON object encoded as a JSON string.
 
@@ -178,10 +167,11 @@ class DurableAIModel(Model):
         return NotImplementedError("Not yet implemented.")
 
 class DurableAIAgentRunner(AgentRunner):
-    def __init__(self, app, context: DurableAIOrchestrationContext, model_context: DurableAIModelContext):
+    def __init__(self, app, context: DurableAIOrchestrationContext, model_context: DurableAIModelContext, activity_name: str):
         self.app = app
         self.context = context
         self.model_context = model_context
+        self.activity_name = activity_name
 
     async def run(
         self,
@@ -195,7 +185,7 @@ class DurableAIAgentRunner(AgentRunner):
 
         model = run_config.model or starting_agent.model
 
-        updated_model = DurableAIModel(self.app, self.context, model)
+        updated_model = DurableAIModel(self.app, self.context, model, self.activity_name)
 
         self.model_context.models[self.context.context.instance_id] = updated_model
 
@@ -281,11 +271,11 @@ class DurableAIFunctionApp:
             def agent_orchestration_trigger(context):
                 input = context.get_input()
 
-                durableAIContext = DurableAIOrchestrationContext(context, self.activity_name)
+                durableAIContext = DurableAIOrchestrationContext(context)
 
                 async def run_agent():
                     try:
-                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context))
+                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context, self.activity_name))
 
                         kwargs = {
                             context_name: durableAIContext,
