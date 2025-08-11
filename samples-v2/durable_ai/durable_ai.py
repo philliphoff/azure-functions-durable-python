@@ -1,6 +1,6 @@
 import copy
-import dataclasses
 import functools
+import inspect
 import json
 import asyncio
 from typing import Any, Awaitable, Dict, TypedDict, Union
@@ -40,6 +40,9 @@ class DurableAIOrchestrationContext:
             return task.result
 
         raise YieldTaskError(task)
+
+    def get_input(self) -> Any | None:
+        return self.context.get_input()
 
 class DurableAIActivityOutputSchemaInput(BaseModel):
     output_type: str | None
@@ -273,14 +276,21 @@ class DurableAIFunctionApp:
 
                 durableAIContext = DurableAIOrchestrationContext(context)
 
+                kwargs = {}
+
+                sig = inspect.signature(trigger)
+
+                for param in sig.parameters.values():
+                    if param.name == context_name:
+                        kwargs[param.name] = durableAIContext
+                    elif param.name == input_name:
+                        kwargs[param.name] = input
+                    else:
+                        raise ValueError(f"Unexpected parameter: {param.name}")
+
                 async def run_agent():
                     try:
                         set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context, self.activity_name))
-
-                        kwargs = {
-                            context_name: durableAIContext,
-                            input_name: input
-                        }
 
                         return await trigger(**kwargs)
                     except YieldTaskError as e:

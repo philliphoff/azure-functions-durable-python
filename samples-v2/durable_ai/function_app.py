@@ -31,7 +31,7 @@ ai_app.enable_agent_http_trigger()
 # Run a simple "Hello, World!" agent.
 #
 @ai_app.agent(name="hello_world")
-async def run_hello_world(input):
+async def run_hello_world(input: str) -> str:
     return await hello_world.run(input, model)
 
 #
@@ -40,12 +40,12 @@ async def run_hello_world(input):
 # This sample demonstrates how to use a durable context to call a standard Durable Functions activity.
 #
 @ai_app.agent(name="deterministic")
-async def run_deterministic(input, context):
-    story = await deterministic.run(input, model)
+async def run_deterministic(context: durable_ai.DurableAIOrchestrationContext) -> str:
+    story = await deterministic.run(context.get_input(), model)
     return await context.call_activity("publish_story", story)
 
 @app.activity_trigger(input_name="input")
-async def publish_story(input: str):
+async def publish_story(input: str) -> str:
     print(f"Publishing story: {input}")
     await asyncio.sleep(1)
     print(f"Story published")
@@ -55,12 +55,12 @@ async def publish_story(input: str):
 # Run an agent that uses a language model as a judge.
 #
 @ai_app.agent(name="llm_as_a_judge")
-async def run_llm_as_a_judge(input):
+async def run_llm_as_a_judge(input: str) -> str:
     return await llm_as_a_judge.run(input, model)
 
 #
 # Run an agent that uses various tools.
 #
 @ai_app.agent(name="tools")
-async def run_tools(input):
+async def run_tools(input: str) -> str:
     return await tools.run(input, model)
