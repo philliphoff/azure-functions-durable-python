@@ -3,7 +3,7 @@ import dataclasses
 import functools
 import json
 import asyncio
-from typing import Any, TypedDict
+from typing import Any, Dict, TypedDict
 from openai import BaseModel
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 from agents import AgentOutputSchema, AgentOutputSchemaBase, Handoff, ModelResponse, ModelSettings, ModelTracing, TResponseInputItem, Tool
@@ -67,7 +67,7 @@ class DurableAIActivityOutputSchema(AgentOutputSchemaBase):
         raise NotImplementedError("DurableAIActivityOutputSchema does not support validate_json")
 
 class DurableAIActivityInput(BaseModel):
-    input: str | list[TResponseInputItem]
+    input: str | list[Dict[str, Any]]
     instance_id: str | None
     output_schema: DurableAIActivityOutputSchemaInput | None
     system_instructions: str | None
