@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import azure.functions as func
+from azure.durable_functions.models.DurableOrchestrationContext import RetryOptions
 import durable_ai
 from agents import OpenAIChatCompletionsModel, set_default_openai_client
 from openai import AsyncAzureOpenAI, BaseModel
@@ -35,12 +36,19 @@ ai_app.enable_agent_http_trigger()
 async def run_hello_world(input: str) -> str:
     return await hello_world.run(input, model)
 
+options = durable_ai.DurableAIAgentOptions(
+    retry_options=RetryOptions(
+        first_retry_interval_in_milliseconds=1000,
+        max_number_of_attempts=3,
+    )
+)
+
 #
 # Run a deterministic agent that publishes a story.
 #
 # This sample demonstrates how to use a durable context to call a standard Durable Functions activity.
 #
-@ai_app.agent(name="deterministic")
+@ai_app.agent(name="deterministic", options=options)
 async def run_deterministic(context: durable_ai.DurableAIOrchestrationContext) -> str:
     story = await deterministic.run(context.get_input(), model)
 

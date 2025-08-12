@@ -3,14 +3,14 @@ import functools
 import inspect
 import json
 import asyncio
-from typing import Any, Awaitable, Dict, TypedDict, Union
+from typing import Any, Awaitable, Dict, Optional, Union
 from openai import BaseModel
 from openai.types.responses.response_prompt_param import ResponsePromptParam
 from agents import AgentOutputSchema, AgentOutputSchemaBase, FunctionTool, Handoff, ModelResponse, ModelSettings, ModelTracing, TResponseInputItem, Tool
 from azure.durable_functions.models.Task import TaskBase
 import azure.functions as func
 from agents.run import AgentRunner, set_default_agent_runner, Model, RunConfig
-from azure.durable_functions.models.DurableOrchestrationContext import DurableOrchestrationContext
+from azure.durable_functions.models.DurableOrchestrationContext import DurableOrchestrationContext, RetryOptions
 from agents.tool_context import ToolContext
 from agents.tool import function_schema
 
@@ -19,16 +19,25 @@ class YieldTaskError(BaseException):
         super().__init__("Halt the orchestration to return an orchestration task.")
         self.task = task
 
+class DurableAIAgentOptions(BaseModel):
+    def __init__(self, retry_options: Optional[RetryOptions] = None):
+        self._retry_options = retry_options
+
+    @property
+    def retry_options(self) -> Optional[RetryOptions]:
+        return self._retry_options
+
 class DurableAIModelContext:
     def __init__(self):
         self.models = {}
 
 class DurableAIOrchestrationContext:
-    def __init__(self, context: DurableOrchestrationContext):
+    def __init__(self, context: DurableOrchestrationContext, options: Optional[DurableAIAgentOptions] = None):
         self.context = context
+        self.options = options
         self.tasks = {}
 
-    async def call_activity(self, activity_name: str, input: Any | None = None):
+    async def call_activity(self, activity_name: str, input: Optional[Any] = None):
         input_json = f"{activity_name}|{json.dumps(input) if input is not None else ''}"
 
         if input_json in self.tasks:
@@ -42,6 +51,24 @@ class DurableAIOrchestrationContext:
 
         raise YieldTaskError(task)
 
+    async def call_activity_with_retry(
+            self,
+            activity_name: str,
+            retry_options: RetryOptions,
+            input: Optional[Any] = None):
+        input_json = f"{activity_name}|{json.dumps(input) if input is not None else ''}"
+
+        if input_json in self.tasks:
+            task = self.tasks[input_json]
+        else:
+            task = self.context.call_activity_with_retry(activity_name, retry_options, input)
+            self.tasks[input_json] = task
+
+        if task.is_completed:
+            return task.result
+
+        raise YieldTaskError(task)
+    
     def get_input(self) -> Any | None:
         return self.context.get_input()
 
@@ -52,7 +79,14 @@ class DurableAIOrchestrationContext:
         activity_name = tool._function._name
 
         async def _invoke_tool(context: ToolContext[Any], args: str) -> Any:
-            result = await self.call_activity(activity_name, args)
+            if self.options is not None and self.options.retry_options is not None:
+                result = await self.call_activity_with_retry(
+                    activity_name=activity_name,
+                    retry_options=self.options.retry_options,
+                    input=args
+                )
+            else:
+                result = await self.call_activity(activity_name, args)
 
             return result
 
@@ -130,10 +164,11 @@ class DurableAIActivityInput(BaseModel):
     tools: list[DurableAIToolInput]
 
 class DurableAIModel(Model):
-    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model, activity_name: str):
+    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model, activity_name: str, options: DurableAIAgentOptions | None = None):
         self.model = model
         self.context = context
         self.activity_name = activity_name
+        self.options = options
 
     async def get_response(
         self,
@@ -180,10 +215,17 @@ class DurableAIModel(Model):
             tools=[get_tool_input(tool) for tool in tools]
         )
 
-        response = await self.context.call_activity(
-            activity_name=self.activity_name,
-            input=activity_input.to_dict()
-        )
+        if (self.options is not None and self.options.retry_options is not None):
+            response = await self.context.call_activity_with_retry(
+                activity_name=self.activity_name,
+                retry_options=self.options.retry_options,
+                input=activity_input.to_dict()
+            )
+        else:
+            response = await self.context.call_activity(
+                activity_name=self.activity_name,
+                input=activity_input.to_dict()
+            )
 
         # NOTE: The response is a ModelResponse encoded as a JSON object encoded as a JSON string.
 
@@ -212,11 +254,12 @@ class DurableAIModel(Model):
         return NotImplementedError("Not yet implemented.")
 
 class DurableAIAgentRunner(AgentRunner):
-    def __init__(self, app, context: DurableAIOrchestrationContext, model_context: DurableAIModelContext, activity_name: str):
+    def __init__(self, app, context: DurableAIOrchestrationContext, model_context: DurableAIModelContext, activity_name: str, options: DurableAIAgentOptions | None = None):
         self.app = app
         self.context = context
         self.model_context = model_context
         self.activity_name = activity_name
+        self.options = options
 
     async def run(
         self,
@@ -230,7 +273,7 @@ class DurableAIAgentRunner(AgentRunner):
 
         model = run_config.model or starting_agent.model
 
-        updated_model = DurableAIModel(self.app, self.context, model, self.activity_name)
+        updated_model = DurableAIModel(self.app, self.context, model, self.activity_name, self.options)
 
         self.model_context.models[self.context.context.instance_id] = updated_model
 
@@ -309,7 +352,7 @@ class DurableAIFunctionApp:
             response = client.create_check_status_response(req, instance_id)
             return response
 
-    def agent(self, name: str, input_name: str = "input", context_name: str = "context"):
+    def agent(self, name: str, input_name: str = "input", context_name: str = "context", options: DurableAIAgentOptions | None = None):
         def agent_orchestration_trigger_wrapper(trigger):
             @self.app.orchestration_trigger(orchestration=f"{name}-orchestration", context_name="context")
             @functools.wraps(trigger)
@@ -332,7 +375,7 @@ class DurableAIFunctionApp:
 
                 async def run_agent():
                     try:
-                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context, self.activity_name))
+                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context, self.activity_name, options))
 
                         return await trigger(**kwargs)
                     except YieldTaskError as e:
