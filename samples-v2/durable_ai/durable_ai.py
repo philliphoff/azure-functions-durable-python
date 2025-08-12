@@ -12,6 +12,7 @@ import azure.functions as func
 from agents.run import AgentRunner, set_default_agent_runner, Model, RunConfig
 from azure.durable_functions.models.DurableOrchestrationContext import DurableOrchestrationContext
 from agents.tool_context import ToolContext
+from agents.tool import function_schema
 
 class YieldTaskError(BaseException):
     def __init__(self, task: TaskBase):
@@ -43,6 +44,43 @@ class DurableAIOrchestrationContext:
 
     def get_input(self) -> Any | None:
         return self.context.get_input()
+    
+    def to_tool(self, tool: Any) -> FunctionTool:
+        async def _invoke_tool(context: ToolContext[Any], args: str) -> Any:
+            result = await self.call_activity("get_weather", args)
+
+            return result
+
+        schema = function_schema(
+            func=_invoke_tool,
+            name_override=None,
+            docstring_style=None,
+            description_override=None,
+            use_docstring_info=False,
+            strict_json_schema=False,
+        )
+
+        return FunctionTool(
+            name="get_weather",
+            description="",
+            params_json_schema=schema.params_json_schema,
+            on_invoke_tool=_invoke_tool,
+            strict_json_schema=False
+        )
+
+    def wait_for_external_event(self, event_name: str) -> Any:
+        input_json = f"{event_name}"
+
+        if input_json in self.tasks:
+            task = self.tasks[input_json]
+        else:
+            task = self.context.wait_for_external_event(event_name)
+            self.tasks[input_json] = task
+
+        if task.is_completed:
+            return task.result
+
+        raise YieldTaskError(task)
 
 class DurableAIActivityOutputSchemaInput(BaseModel):
     output_type: str | None
@@ -85,7 +123,6 @@ class DurableAIActivityInput(BaseModel):
     output_schema: DurableAIActivityOutputSchemaInput | None
     system_instructions: str | None
     tools: list[DurableAIToolInput]
-
 
 class DurableAIModel(Model):
     def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model, activity_name: str):

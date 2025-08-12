@@ -1,9 +1,10 @@
 import asyncio
+import json
 import os
 import azure.functions as func
 import durable_ai
 from agents import OpenAIChatCompletionsModel, set_default_openai_client
-from openai import AsyncAzureOpenAI
+from openai import AsyncAzureOpenAI, BaseModel
 
 import deterministic
 import hello_world
@@ -61,6 +62,20 @@ async def run_llm_as_a_judge(input: str) -> str:
 #
 # Run an agent that uses various tools.
 #
+class Weather(BaseModel):
+    city: str
+    temperature_range: str
+    conditions: str
+
+    @staticmethod
+    def from_json(data: str) -> "Weather":
+        return Weather(**json.loads(data))
+
+@app.activity_trigger(input_name="city")
+def get_weather(city: str) -> Weather:
+    print("[debug] get_weather called")
+    return Weather(city=city, temperature_range="14-20C", conditions="Sunny with wind.")
+
 @ai_app.agent(name="tools")
-async def run_tools(input: str) -> str:
-    return await tools.run(input, model)
+async def run_tools(context: durable_ai.DurableAIOrchestrationContext) -> str:
+    return await tools.run(context.get_input(), model, [context.to_tool(get_weather)])
