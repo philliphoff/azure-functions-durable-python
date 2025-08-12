@@ -44,7 +44,10 @@ class DurableAIOrchestrationContext:
 
     def get_input(self) -> Any | None:
         return self.context.get_input()
-    
+
+    def set_custom_status(self, status: Any):
+        self.context.set_custom_status(status)
+
     def to_tool(self, tool: Any) -> FunctionTool:
         activity_name = tool._function._name
 
@@ -70,7 +73,7 @@ class DurableAIOrchestrationContext:
             strict_json_schema=False
         )
 
-    def wait_for_external_event(self, event_name: str) -> Any:
+    async def wait_for_external_event(self, event_name: str) -> Any:
         input_json = f"{event_name}"
 
         if input_json in self.tasks:

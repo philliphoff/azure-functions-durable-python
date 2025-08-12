@@ -6,10 +6,10 @@ import durable_ai
 from agents import OpenAIChatCompletionsModel, set_default_openai_client
 from openai import AsyncAzureOpenAI, BaseModel
 
-import deterministic
-import hello_world
-import llm_as_a_judge
-import tools
+import sample_agents.deterministic as deterministic
+import sample_agents.hello_world as hello_world
+import sample_agents.llm_as_a_judge as llm_as_a_judge
+import sample_agents.tools as tools
 
 openai_client = AsyncAzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -43,6 +43,9 @@ async def run_hello_world(input: str) -> str:
 @ai_app.agent(name="deterministic")
 async def run_deterministic(context: durable_ai.DurableAIOrchestrationContext) -> str:
     story = await deterministic.run(context.get_input(), model)
+
+    context.set_custom_status("Publishing story...")
+
     return await context.call_activity("publish_story", story)
 
 @app.activity_trigger(input_name="input")
