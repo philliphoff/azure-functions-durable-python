@@ -46,14 +46,16 @@ class DurableAIOrchestrationContext:
         return self.context.get_input()
     
     def to_tool(self, tool: Any) -> FunctionTool:
+        activity_name = tool._function._name
+
         async def _invoke_tool(context: ToolContext[Any], args: str) -> Any:
-            result = await self.call_activity("get_weather", args)
+            result = await self.call_activity(activity_name, args)
 
             return result
 
         schema = function_schema(
             func=_invoke_tool,
-            name_override=None,
+            name_override=activity_name,
             docstring_style=None,
             description_override=None,
             use_docstring_info=False,
@@ -61,7 +63,7 @@ class DurableAIOrchestrationContext:
         )
 
         return FunctionTool(
-            name="get_weather",
+            name=activity_name,
             description="",
             params_json_schema=schema.params_json_schema,
             on_invoke_tool=_invoke_tool,
