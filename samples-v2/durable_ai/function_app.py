@@ -4,7 +4,7 @@ import os
 import azure.functions as func
 from azure.durable_functions.models.DurableOrchestrationContext import RetryOptions
 import durable_ai
-from agents import OpenAIChatCompletionsModel, set_default_openai_client
+from agents import set_default_openai_client
 from openai import AsyncAzureOpenAI, BaseModel
 
 import sample_agents.deterministic as deterministic
@@ -16,13 +16,15 @@ openai_client = AsyncAzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        # Set max retries to zero to not conflict with activity-level retry options.
+        max_retries=0
     )
 
 # Set the default OpenAI client for the Agents SDK
 set_default_openai_client(openai_client)
 
-model=OpenAIChatCompletionsModel(model="gpt-4.1", openai_client=openai_client)
+model="gpt-4.1"
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 ai_app = durable_ai.DurableAIFunctionApp(app)

@@ -1,6 +1,6 @@
-from agents import Agent, Runner
+from agents import Agent, Model, Runner, Tool
 
-async def run(input, model, tools):
+async def run(input: str, model: str | Model, tools: list[Tool]) -> str:
     agent = Agent(
         name="Hello world",
         instructions="You are a helpful agent.",

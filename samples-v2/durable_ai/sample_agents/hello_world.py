@@ -1,7 +1,7 @@
 from agents import Agent, Runner
 from agents.run import Model
 
-async def run(input: str, model: Model) -> str:
+async def run(input: str, model: str | Model) -> str:
     agent = Agent(
         name="Assistant",
         instructions="You only respond in haikus.",

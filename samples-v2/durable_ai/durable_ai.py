@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Awaitable, Dict, Optional, Union
 from openai import BaseModel
 from openai.types.responses.response_prompt_param import ResponsePromptParam
-from agents import AgentOutputSchema, AgentOutputSchemaBase, FunctionTool, Handoff, ModelResponse, ModelSettings, ModelTracing, TResponseInputItem, Tool
+from agents import AgentOutputSchema, AgentOutputSchemaBase, FunctionTool, Handoff, ModelProvider, ModelResponse, ModelSettings, ModelTracing, OpenAIProvider, TResponseInputItem, Tool
 from azure.durable_functions.models.Task import TaskBase
 import azure.functions as func
 from agents.run import AgentRunner, set_default_agent_runner, Model, RunConfig
@@ -26,10 +26,6 @@ class DurableAIAgentOptions(BaseModel):
     @property
     def retry_options(self) -> Optional[RetryOptions]:
         return self._retry_options
-
-class DurableAIModelContext:
-    def __init__(self):
-        self.models = {}
 
 class DurableAIOrchestrationContext:
     def __init__(self, context: DurableOrchestrationContext, options: Optional[DurableAIAgentOptions] = None):
@@ -159,13 +155,14 @@ DurableAIToolInput = Union[
 class DurableAIActivityInput(BaseModel):
     input: str | list[Dict[str, Any]]
     instance_id: str | None
+    model_name: str
     output_schema: DurableAIActivityOutputSchemaInput | None
     system_instructions: str | None
     tools: list[DurableAIToolInput]
 
 class DurableAIModel(Model):
-    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model: Model, activity_name: str, options: DurableAIAgentOptions | None = None):
-        self.model = model
+    def __init__(self, app: func.FunctionApp, context: DurableAIOrchestrationContext, model_name: str, activity_name: str, options: DurableAIAgentOptions | None = None):
+        self.model_name = model_name
         self.context = context
         self.activity_name = activity_name
         self.options = options
@@ -210,6 +207,7 @@ class DurableAIModel(Model):
         activity_input = DurableAIActivityInput(
             input=input,
             instance_id=self.context.context.instance_id,
+            model_name=self.model_name,
             output_schema=input_output_schema,
             system_instructions=system_instructions,
             tools=[get_tool_input(tool) for tool in tools]
@@ -254,10 +252,9 @@ class DurableAIModel(Model):
         return NotImplementedError("Not yet implemented.")
 
 class DurableAIAgentRunner(AgentRunner):
-    def __init__(self, app, context: DurableAIOrchestrationContext, model_context: DurableAIModelContext, activity_name: str, options: DurableAIAgentOptions | None = None):
+    def __init__(self, app, context: DurableAIOrchestrationContext, activity_name: str, options: DurableAIAgentOptions | None = None):
         self.app = app
         self.context = context
-        self.model_context = model_context
         self.activity_name = activity_name
         self.options = options
 
@@ -273,9 +270,12 @@ class DurableAIAgentRunner(AgentRunner):
 
         model = run_config.model or starting_agent.model
 
-        updated_model = DurableAIModel(self.app, self.context, model, self.activity_name, self.options)
+        if isinstance(model, str):
+            model_name = model
+        else:
+            raise TypeError(f"Unsupported model type: {type(model)}")
 
-        self.model_context.models[self.context.context.instance_id] = updated_model
+        updated_model = DurableAIModel(self.app, self.context, model_name, self.activity_name, self.options)
 
         run_config = copy.copy(run_config)
 
@@ -299,13 +299,20 @@ class DurableAIAgentRunner(AgentRunner):
 class DurableAIFunctionApp:
     activity_name = "agent-activity"
 
-    def __init__(self, app):
+    def __init__(self, app, model_provider: Optional[ModelProvider] = None):
         self.app = app
-        self.model_context = DurableAIModelContext()
+        self.model_provider = model_provider
+
+        if self.model_provider is None:
+            self.model_provider = OpenAIProvider(
+                # TODO: Does this need to be overridable?
+            )
+
         @app.activity_trigger(input_name="input", activity=self.activity_name)
         async def agent_activity_trigger(input) -> str:
             activity_input = DurableAIActivityInput(**input)
-            model = self.model_context.models[activity_input.instance_id]
+
+            model = self.model_provider.get_model(activity_input.model_name)
 
             output_schema = None
 
@@ -327,12 +334,15 @@ class DurableAIFunctionApp:
                 else:
                     raise TypeError(f"Unsupported tool type: {type(tool)}")
 
-            response = await model.get_model_response(
+            response = await model.get_response(
                 system_instructions=activity_input.system_instructions,
                 input=activity_input.input,
+                model_settings=ModelSettings(),
+                tools=[to_tools(tool) for tool in activity_input.tools],
                 output_schema=output_schema,
-                tools=[to_tools(tool) for tool in activity_input.tools]
-            )
+                handoffs=[],
+                tracing=ModelTracing.ENABLED,
+                previous_response_id=None)
 
             # Returns JSON encoded as bytes
             json_obj = ModelResponse.__pydantic_serializer__.to_json(response)
@@ -375,7 +385,7 @@ class DurableAIFunctionApp:
 
                 async def run_agent():
                     try:
-                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.model_context, self.activity_name, options))
+                        set_default_agent_runner(DurableAIAgentRunner(self, durableAIContext, self.activity_name, options))
 
                         return await trigger(**kwargs)
                     except YieldTaskError as e:

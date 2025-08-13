@@ -1,7 +1,7 @@
-from agents import Agent, Runner, UserError 
+from agents import Agent, Model, Runner, UserError 
 from dataclasses import dataclass
 
-async def run(input, model):
+async def run(input: str, model: str | Model):
     """
     This example demonstrates a deterministic flow, where each step is performed by an agent.
     1. The first agent generates a story outline
