@@ -92,3 +92,28 @@ def get_weather(city: str) -> Weather:
 @ai_app.agent(name="tools")
 async def run_tools(context: durable_ai.DurableAIOrchestrationContext) -> str:
     return await tools.run(context.get_input(), model, [context.to_tool(get_weather)])
+
+#
+# Run a Pydantic agent
+#
+
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openai import OpenAIProvider
+import durable_pydantic_ai
+
+model = OpenAIModel('gpt-4o', provider=OpenAIProvider(openai_client=openai_client))
+agent = Agent(
+    model,
+    instructions="You're an expert in geography.",
+    name='geography',  
+)
+
+durable_agent = durable_pydantic_ai.DurableAgent(app, agent)
+
+pydantic_ai_app = durable_pydantic_ai.DurableAIFunctionApp(app)
+
+@pydantic_ai_app.agent(name="pydantic")
+async def run_pydantic(input: str) -> str:
+        result = await durable_agent.run(input)  
+        return result.output
